@@ -29,6 +29,7 @@ struct rescale {
 	struct iio_channel *source;
 	struct iio_chan_spec chan;
 	struct iio_chan_spec_ext_info *ext_info;
+	bool chan_processed;
 	s32 numerator;
 	s32 denominator;
 };
@@ -43,10 +44,27 @@ static int rescale_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case IIO_CHAN_INFO_RAW:
-		return iio_read_channel_raw(rescale->source, val);
+		if (rescale->chan_processed)
+			/*
+			 * When only processed channels are supported, we
+			 * read the processed data and scale it by 1/1
+			 * augmented with whatever the rescaler has calculated.
+			 */
+			return iio_read_channel_processed(rescale->source, val);
+		else
+			return iio_read_channel_raw(rescale->source, val);
 
 	case IIO_CHAN_INFO_SCALE:
-		ret = iio_read_channel_scale(rescale->source, val, val2);
+		if (rescale->chan_processed) {
+			/*
+			 * Processed channels are scaled 1-to-1
+			 */
+			ret = IIO_VAL_FRACTIONAL;
+			*val = 1;
+			*val2 = 1;
+		} else {
+			ret = iio_read_channel_scale(rescale->source, val, val2);
+		}
 		switch (ret) {
 		case IIO_VAL_FRACTIONAL:
 			*val *= rescale->numerator;
@@ -132,8 +150,13 @@ static int rescale_configure_channel(struct device *dev,
 
 	if (!iio_channel_has_info(schan, IIO_CHAN_INFO_RAW) ||
 	    !iio_channel_has_info(schan, IIO_CHAN_INFO_SCALE)) {
-		dev_err(dev, "source channel does not support raw/scale\n");
-		return -EINVAL;
+		if (iio_channel_has_info(schan, IIO_CHAN_INFO_PROCESSED)) {
+			dev_info(dev, "using processed channel\n");
+			rescale->chan_processed = true;
+		} else {
+			dev_err(dev, "source channel does not support raw+scale or processed data\n");
+			return -EINVAL;
+		}
 	}
 
 	chan->info_mask_separate = BIT(IIO_CHAN_INFO_RAW) |
