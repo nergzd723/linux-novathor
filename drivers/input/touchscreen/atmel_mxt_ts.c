@@ -1297,8 +1297,6 @@ static int mxt_check_retrigen(struct mxt_data *data)
 	int val;
 	struct irq_data *irqd;
 
-	data->use_retrigen_workaround = false;
-
 	irqd = irq_get_irq_data(data->irq);
 	if (!irqd)
 		return -EINVAL;
@@ -1313,8 +1311,10 @@ static int mxt_check_retrigen(struct mxt_data *data)
 		if (error)
 			return error;
 
-		if (val & MXT_COMMS_RETRIGEN)
+		if (val & MXT_COMMS_RETRIGEN) {
+			data->use_retrigen_workaround = false;
 			return 0;
+		}
 	}
 
 	dev_warn(&client->dev, "Enabling RETRIGEN workaround\n");
@@ -3117,6 +3117,7 @@ static int mxt_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	data = devm_kzalloc(&client->dev, sizeof(struct mxt_data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
+	data->use_retrigen_workaround = true;
 
 	snprintf(data->phys, sizeof(data->phys), "i2c-%u-%04x/input0",
 		 client->adapter->nr, client->addr);
