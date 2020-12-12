@@ -10,6 +10,23 @@
 	model = "ST-Ericsson HREF (v60+) platform with Device Tree";
 	compatible = "st-ericsson,hrefv60+", "st-ericsson,u8500";
 
+	/* Thermistors on the board to monitor battery temperatures */
+	thermistor@0 {
+		compatible = "murata,ncp18wb473";
+		io-channels = <&gpadc 0x06>; /* AUX1 */
+		pullup-uv = <1800000>;
+		pullup-ohm = <220000>;
+		pulldown-ohm = <0>;
+	};
+
+	thermistor@1 {
+		compatible = "murata,ncp18wb473";
+		io-channels = <&gpadc 0x07>; /* AUX2 */
+		pullup-uv = <1800000>;
+		pullup-ohm = <220000>;
+		pulldown-ohm = <0>;
+	};
+
 	soc {
 		/* Name the GPIO muxed rails on the HREF boards */
 		gpio@8012e000 {
