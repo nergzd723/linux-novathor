@@ -1,0 +1,336 @@
+/dts-v1/;
+#include "ste-db8500.dtsi"
+#include "ste-ab8500.dtsi"
+#include "ste-dbx5x0-pinctrl.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+/ {
+	model = "Samsung Galaxy Ace 2 (GT-I8160)";
+	compatible = "samsung,codina", "st-ericsson,u8500";
+
+    chosen {
+		#address-cells = <0x1>;
+		#size-cells = <0x1>;
+		ranges;
+	    framebuffer0: framebuffer@0x9000000 {
+		    compatible = "simple-framebuffer";
+		    reg = <0x9000000 (800 * 480 * 4)>;
+		    width = <480>;
+		    height = <800>;
+		    stride = <(480 * 4)>;
+		    format = "a8b8g8r8";
+            status = "okay";
+        };
+    };
+    reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+        display_reserved: video@0x9000000 {
+			no-map;
+			reg = <0x9000000 (800*480*4)>;
+		};
+/*        
+		ram@0x2ff00000 {
+			reg = <0x2ff00000 0x10100000>;
+			no-map;
+		};
+*/
+    };
+	/*
+	 * External Ricoh RP152L010B-TR LCD LDO regulator for the display.
+	 * LCD_PWR_EN controls a 3.0V and 1.8V output.
+	 */
+	lcd_3v0_reg: regulator-gpio-lcd-3v0 {
+		compatible = "regulator-fixed";
+		/* Supplied in turn by VBAT */
+		regulator-name = "VREG_LCD_3V0";
+		regulator-min-microvolt = <3000000>;
+		regulator-max-microvolt = <3000000>;
+		/* GPIO219 controls this regulator */
+		gpio = <&gpio6 27 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&lcd_pwr_en_default_mode>;
+	};
+	lcd_1v8_reg: regulator-gpio-lcd-1v8 {
+		compatible = "regulator-fixed";
+		/* Supplied in turn by VBAT */
+		regulator-name = "VREG_LCD_1V8";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		/* GPIO219 controls this regulator */
+		gpio = <&gpio6 27 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&lcd_pwr_en_default_mode>;
+	};
+
+	/* External LDO for eMMC LDO VMEM_3V3 controlled by GPIO6 */
+	ldo_3v3_reg: regulator-gpio-ldo-3v3 {
+		compatible = "regulator-fixed";
+		/* Supplied in turn by VBAT */
+		regulator-name = "VMEM_3V3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&gpio6 31 GPIO_ACTIVE_HIGH>;
+		startup-delay-us = <5000>; // FIXME
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&emmc_ldo_en_default_mode>;
+	};
+
+	/*
+	 * This regulator is a GPIO line that drives the Broadcom WLAN
+	 * line BT_VREG_EN high and enables the internal regulators
+	 * inside the chip.
+	 *
+	 * The voltage specified here is only used to determine the OCR mask,
+	 * the for the SDIO connector, the chip is actually connected
+	 * directly to VBAT.
+	 */
+	wl_bt_reg: regulator-gpio-wlan {
+		compatible = "regulator-fixed";
+		regulator-name = "BT_VREG_EN";
+		regulator-min-microvolt = <3000000>;
+		regulator-max-microvolt = <3000000>;
+		/* GPIO222 (BT_VREG_EN) */
+		gpio = <&gpio6 30 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		pinctrl-names = "default";
+		pinctrl-0 = <&wlan_ldo_en_default>;
+		regulator-always-on;
+	};
+
+	soc{
+		/* WLAN SDIO channel */
+		sdi1_per2@80118000 {
+			arm,primecell-periphid = <0x10480180>;
+			max-frequency = <50000000>;
+			bus-width = <4>;
+			non-removable;
+			cap-sd-highspeed;
+			pinctrl-names = "default", "sleep";
+			pinctrl-0 = <&mc1_a_2_default>;
+			pinctrl-1 = <&mc1_a_2_sleep>;
+			/*
+			 * GPIO-controlled voltage enablement: this drives
+			 * the BT_VREG_EN line high when we use this device.
+			 * Represented as regulator to fill OCR mask and to
+			 * be usable in parallel with the Bluetooth chip.
+			 */
+			vmmc-supply = <&wl_bt_reg>;
+
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			wifi@1 {
+				/* Actually BRCM4330 */
+				compatible = "brcm,bcm4329-fmac";
+				reg = <1>;
+				/* GPIO216 WL_HOST_WAKE */
+				interrupt-parent = <&gpio6>;
+				interrupts = <24 IRQ_TYPE_EDGE_FALLING>;
+				interrupt-names = "host-wake";
+				/* GPIO215  WLAN_RST_N */
+				/* FIXME: kernel does not use this assert/deassert */
+				reset-gpios = <&gpio6 23 GPIO_ACTIVE_LOW>;
+				pinctrl-names = "default";
+				pinctrl-0 = <&wlan_default_mode>;
+			};
+		};
+
+		/* eMMC */
+		sdi2_per3@80005000 {
+			arm,primecell-periphid = <0x10480180>;
+		    max-frequency = <50000000>;
+			bus-width = <8>;
+			non-removable;
+			cap-mmc-highspeed;
+			mmc-ddr-1_8v;
+			vmmc-supply = <&ldo_3v3_reg>;
+			pinctrl-names = "default", "sleep";
+			pinctrl-0 = <&mc2_a_1_default>;
+			pinctrl-1 = <&mc2_a_1_sleep>;
+			status = "okay";
+		};
+		i2c@80110000 {
+			status = "okay";
+
+			pinctrl-names = "default", "sleep";
+			pinctrl-0 = <&i2c3_c_2_default>;
+			pinctrl-1 = <&i2c3_c_2_sleep>;
+
+			touchscreen@20 {
+				compatible = "zinitix,bt541";
+				reg = <0x20>;
+
+				/* GPIO218 (TSP_INT_1V8) */
+				interrupt-parent = <&gpio6>;
+				interrupts = <26 IRQ_TYPE_EDGE_FALLING>;
+
+				pinctrl-names = "default";
+				pinctrl-0 = <&tsp_default>;
+			};
+		};
+		prcmu@80157000 {
+			ab8500 {
+				ab8500_usb {
+					pinctrl-names = "default", "sleep";
+					pinctrl-0 = <&usb_a_1_default>;
+					pinctrl-1 = <&usb_a_1_sleep>;
+				};
+
+				ab8500-regulators {
+					ab8500_ldo_aux1 {
+						/* Used for VDD for sensors */
+						regulator-name = "V-SENSORS-VDD";
+						regulator-min-microvolt = <3000000>;
+						regulator-max-microvolt = <3000000>;
+					};
+
+					ab8500_ldo_aux2 {
+						regulator-name = "vreg_tsp_a3v3";
+						regulator-min-microvolt = <3300000>;
+						regulator-max-microvolt = <3300000>;
+						regulator-always-on; /* FIXME */
+					};
+
+					ab8500_ldo_aux3 {
+						/* Used for voltage for external MMC/SD card */
+						regulator-name = "V-MMC-SD";
+						regulator-min-microvolt = <1200000>;
+						regulator-max-microvolt = <2910000>;
+						regulator-always-on;
+					};
+				};
+			};
+		};
+	};
+};
+
+
+&pinctrl {
+	/*
+	 * This extends the MC0_A_2 default config to include
+	 * the card detect GPIO217 line.
+	 */
+	mcde {
+		dpi_default_mode: dpi_default {
+			default_mux1 {
+				/* Mux in all the data lines */
+				function = "lcd";
+				groups =
+					/* Data lines D0-D7 GPIO70..GPIO77 */
+					"lcd_d0_d7_a_1",
+					/* Data lines D8-D11 GPIO78..GPIO81 */
+					"lcd_d8_d11_a_1",
+					/* Data lines D12-D15 GPIO82..GPIO85 */
+					"lcd_d12_d15_a_1",
+					/* Data lines D16-D23 GPIO161..GPIO168 */
+					"lcd_d16_d23_b_1";
+			};
+			default_mux2 {
+				function = "lcda";
+				/* Clock line on GPIO150, DE, VSO, HSO on GPIO169..GPIO171 */
+				groups = "lcdaclk_b_1", "lcda_b_1";
+			};
+			/* Input, no pull-up is the default state for pins used for an alt function */
+			default_cfg1 {
+				pins = "GPIO150_C14", "GPIO169_D22", "GPIO170_C23", "GPIO171_D23";
+				ste,config = <&in_nopull>;
+			};
+		};
+	};
+	/* GPIO for panel reset control */
+	panel {
+		panel_default_mode: panel_default {
+			janice_cfg1 {
+				/* Reset line */
+				pins = "GPIO139_C9";
+				ste,config = <&gpio_out_lo>;
+			};
+		};
+	};
+	/* GPIO that enabled the LDO regulator for the LCD display */
+	lcd-ldo {
+		lcd_pwr_en_default_mode: lcd_pwr_en_default {
+			/* LCD_PWR_EN on GPIO219 */
+			janice_cfg1 {
+				pins = "GPIO219_AG10";
+				ste,config = <&gpio_out_hi>;
+			};
+		};
+	};
+	wlan {
+		wlan_default_mode: wlan_default {
+			/* GPIO215 used for RESET_N */
+			janice_cfg1 {
+				pins = "GPIO215_AH13";
+				ste,config = <&gpio_out_lo>;
+			};
+			/* GPIO216 for WL_HOST_WAKE */
+			janice_cfg2 {
+				pins = "GPIO216_AG12";
+				ste,config = <&gpio_in_pd>;
+			};
+		};
+	};
+	bluetooth {
+		bluetooth_default_mode: bluetooth_default {
+			janice_cfg1 {
+				pins = "GPIO199_AH23";
+				ste,config = <&gpio_out_lo>;
+			};
+			janice_cfg2 {
+				pins = "GPIO97_D9";
+				ste,config = <&gpio_in_nopull>;
+			};
+			janice_cfg3 {
+				pins = "GPIO209_AG15";
+				ste,config = <&gpio_out_hi>;
+			};
+		};
+	};
+	/* GPIO that enables the WLAN internal LDO regulators */
+	wlan-ldo {
+		wlan_ldo_en_default: wlan_ldo_default {
+			/* GPIO222 BT_VREG_ON */
+			janice_cfg1 {
+				pins = "GPIO222_AJ9";
+				ste,config = <&gpio_out_lo>;
+			};
+		};
+	};
+	/* Interrupt line for TI TSU6111 Micro USB switch */
+	tsu6111 {
+		tsu6111_janice_default: tsu6111_janice {
+			janice_cfg1 {
+				/* GPIO95 used for IRQ */
+				pins = "GPIO95_E8";
+				ste,config = <&gpio_in_nopull>;
+			};
+		};
+	};
+	tsp {
+		tsp_default: tsp_default {
+			golden_cfg1 {
+				pins = "GPIO218_AH11";	/* TSP_INT_1V8 */
+				ste,config = <&gpio_in_nopull>;
+			};
+		};
+	};
+	/* GPIO that enables the LDO regulator for the eMMC */
+	emmc-ldo {
+		emmc_ldo_en_default_mode: emmc_ldo_default {
+			/* LDO enable on GPIO223 */
+			janice_cfg1 {
+				pins = "GPIO223_AH9";
+				ste,config = <&gpio_out_hi>;
+			};
+		};
+	};
+};
